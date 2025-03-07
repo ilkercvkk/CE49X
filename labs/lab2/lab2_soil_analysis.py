@@ -50,14 +50,14 @@ def compute_statistics(data, column_name):    # 3. Statistics Calculation
 
 def export_to_csv(stats, filename='statistics_output.csv'):
     """Exports statistics to a CSV file."""
-    output_path = 'labs/lab2/' + filename  # Output dosyasının tam yolu
+    output_path = filename  # Output dosyasının tam yolu
     stats_df = pd.DataFrame(stats).T  # .T transposes the dictionary so stats are in rows
     stats_df.to_csv(output_path, index=True)  # Save to CSV with stats as rows
     print(f"Exported statistics to {output_path}")
 
 
 def main():    # Main Function
-    file_path = 'datasets/soil_test.csv'    # 4. Set the file path
+    file_path = '../../datasets/soil_test.csv'    # 4. Set the file path
     data = load_data(file_path)    # 5. Load the data
     cleaned_data = clean_data(data)    # 6. Clean the data
     if cleaned_data is not None:    # 7. Calculate statistics
