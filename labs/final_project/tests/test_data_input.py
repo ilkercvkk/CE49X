@@ -1,3 +1,4 @@
+
 """
 Tests for the data input module.
 """
@@ -22,7 +23,7 @@ def sample_data():
         'transport_mode': ['Truck', 'Truck', 'Truck'],
         'waste_generated_kg': [5, 0, 100],
         'recycling_rate': [0.9, 0, 0.9],
-        'landfill_rate': [0.05, 0, 0.05],
+        'landfill_rate': [0.05, 1, 0.05], #'landfill_rate': [0.05, 0, 0.05],
         'incineration_rate': [0.05, 0, 0.05],
         'carbon_footprint_kg_co2e': [180, 50, 10],
         'water_usage_liters': [150, 30, 10]
@@ -94,6 +95,7 @@ def test_validate_data(sample_data):
     
     # Test invalid numeric data
     invalid_data = sample_data.copy()
+    invalid_data['quantity_kg'] = invalid_data['quantity_kg'].astype(object) # BU SATIRI EKLEYİN
     invalid_data.loc[0, 'quantity_kg'] = 'invalid'
     assert not data_input.validate_data(invalid_data)
     

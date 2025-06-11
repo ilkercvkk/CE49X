@@ -11,7 +11,7 @@ import numpy as np
 
 class LCAVisualizer:
     def __init__(self):
-        plt.style.use('seaborn')
+        plt.style.use('seaborn-v0_8-whitegrid')         #new version of matplotlib
         self.colors = sns.color_palette("husl", 8)
         self.impact_labels = {
             'carbon_impact': 'Carbon Impact (kg CO2e)',
