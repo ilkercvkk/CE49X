@@ -1,160 +1,119 @@
-"""
-Calculations module for LCA tool.
-Handles environmental impact calculations and analysis.
-"""
-
+# src/calculations.py
 import pandas as pd
-import numpy as np
-from typing import Dict, List, Union
-from pathlib import Path
+from typing import Dict, List
+
 
 class LCACalculator:
-    def __init__(self, impact_factors_path: Union[str, Path] = None):
+    """
+    Handles environmental impact calculations using efficient, vectorized operations.
+    """
+
+    def __init__(self, impact_factors: Dict):
         """
-        Initialize LCA Calculator with impact factors.
-        
+        Initializes the calculator with a pre-loaded dictionary of impact factors.
         Args:
-            impact_factors_path: Path to the impact factors JSON file
+            impact_factors: A dictionary containing the impact factors.
         """
-        self.impact_factors = self._load_impact_factors(impact_factors_path) if impact_factors_path else {}
-        
-    def _load_impact_factors(self, file_path: Union[str, Path]) -> Dict:
-        """Load impact factors from JSON file."""
-        from .data_input import DataInput
-        data_input = DataInput()
-        return data_input.read_impact_factors(file_path)
-    
+        self.impact_factors = impact_factors
+        self._factors_df = self._prepare_factors_dataframe()
+
+    def _prepare_factors_dataframe(self) -> pd.DataFrame:
+        """Converts the nested impact factors dictionary into a flat DataFrame for merging."""
+        factors_list = []
+        for material, stages in self.impact_factors.items():
+            for stage, impacts in stages.items():
+                # Normalize keys for consistency (e.g., 'disposal' -> 'end-of-life')
+                stage_key = (
+                    "end-of-life"
+                    if "end" in stage.lower() or "disposal" in stage.lower()
+                    else stage.lower()
+                )
+                factors_list.append(
+                    {
+                        "material_type": material.lower(),
+                        "life_cycle_stage": stage_key,
+                        "carbon_factor": impacts.get("carbon_impact", 0),
+                        "energy_factor": impacts.get("energy_impact", 0),
+                        "water_factor": impacts.get("water_impact", 0),
+                    }
+                )
+        return pd.DataFrame(factors_list)
+
     def calculate_impacts(self, data: pd.DataFrame) -> pd.DataFrame:
         """
-        Calculate environmental impacts for each product and life cycle stage.
-        
-        Args:
-            data: DataFrame containing product data
-            
-        Returns:
-            DataFrame with calculated impacts
+        Calculates environmental impacts using vectorized pandas operations.
+        This method is significantly faster than row-by-row iteration.
         """
-        results = []
-        
-        for _, row in data.iterrows():
-            material = row['material_type'].lower()
-            stage = row['life_cycle_stage'].lower()
-            quantity = row['quantity_kg']
-            
-            # Get impact factors for the material and stage
-            material_factors = self.impact_factors.get(material, {})
-            stage_factors = material_factors.get(stage, {})
-            
-            # Calculate impacts using both direct measurements and impact factors
-            impacts = {
-                'product_id': row['product_id'],
-                'product_name': row['product_name'],
-                'life_cycle_stage': stage,
-                'material_type': material,
-                'quantity_kg': quantity,
-                
-                # Direct measurements from data
-                'energy_consumption_kwh': row['energy_consumption_kwh'],
-                'transport_distance_km': row['transport_distance_km'],
-                'waste_generated_kg': row['waste_generated_kg'],
-                
-                # Calculated impacts using impact factors
-                'carbon_impact': (
-                    quantity * stage_factors.get('carbon_impact', 0) +
-                    row['carbon_footprint_kg_co2e']
-                ),
-                'energy_impact': (
-                    quantity * stage_factors.get('energy_impact', 0) +
-                    row['energy_consumption_kwh']
-                ),
-                'water_impact': (
-                    quantity * stage_factors.get('water_impact', 0) +
-                    row['water_usage_liters']
-                ),
-                
-                # End-of-life management
-                'recycling_rate': row['recycling_rate'],
-                'landfill_rate': row['landfill_rate'],
-                'incineration_rate': row['incineration_rate']
-            }
-            results.append(impacts)
-            
-        return pd.DataFrame(results)
-    
+        # Ensure key columns are lowercase for consistent merging
+        data["life_cycle_stage"] = data["life_cycle_stage"].str.lower()
+        data["material_type"] = data["material_type"].str.lower()
+
+        # Merge the main data with the factors DataFrame
+        merged_df = pd.merge(
+            data, self._factors_df, on=["material_type", "life_cycle_stage"], how="left"
+        ).fillna(
+            0
+        )  # Use 0 for any non-matching factors
+
+        # Perform calculations on entire columns at once (vectorization)
+        merged_df["carbon_impact"] = (
+            merged_df["quantity_kg"] * merged_df["carbon_factor"]
+        ) + merged_df["carbon_footprint_kg_co2e"]
+        merged_df["energy_impact"] = (
+            merged_df["quantity_kg"] * merged_df["energy_factor"]
+        ) + merged_df["energy_consumption_kwh"]
+        merged_df["water_impact"] = (
+            merged_df["quantity_kg"] * merged_df["water_factor"]
+        ) + merged_df["water_usage_liters"]
+
+        # Select and return the relevant columns
+        result_columns = list(data.columns) + [
+            "carbon_impact",
+            "energy_impact",
+            "water_impact",
+        ]
+        return merged_df[result_columns]
+
     def calculate_total_impacts(self, impacts: pd.DataFrame) -> pd.DataFrame:
-        """
-        Calculate total impacts across all life cycle stages for each product.
-        
-        Args:
-            impacts: DataFrame with calculated impacts
-            
-        Returns:
-            DataFrame with total impacts per product
-        """
-        # Group by product and sum impacts
-        total_impacts = impacts.groupby(['product_id', 'product_name']).agg({
-            'carbon_impact': 'sum',
-            'energy_impact': 'sum',
-            'water_impact': 'sum',
-            'waste_generated_kg': 'sum'
-        }).reset_index()
-        
+        """Calculates total impacts across all life cycle stages for each product."""
+        total_impacts = (
+            impacts.groupby(["product_id", "product_name"])
+            .agg(
+                {
+                    "carbon_impact": "sum",
+                    "energy_impact": "sum",
+                    "water_impact": "sum",
+                    "waste_generated_kg": "sum",
+                }
+            )
+            .reset_index()
+        )
         return total_impacts
-    
+
     def normalize_impacts(self, impacts: pd.DataFrame) -> pd.DataFrame:
-        """
-        Normalize impacts to a common scale (0-1).
-        
-        Args:
-            impacts: DataFrame with calculated impacts
-            
-        Returns:
-            DataFrame with normalized impacts
-        """
+        """Normalizes impacts to a common scale (0-1)."""
         normalized = impacts.copy()
-        
-        impact_columns = ['carbon_impact', 'energy_impact', 'water_impact']
-        
+        impact_columns = ["carbon_impact", "energy_impact", "water_impact"]
         for col in impact_columns:
-            max_value = impacts[col].max()
+            max_value = normalized[col].max()
             if max_value > 0:
-                normalized[col] = impacts[col] / max_value
-                
+                normalized[col] = normalized[col] / max_value
         return normalized
-    
-    # src/calculations.py dosyasında
 
-# Eski Hali:
-# def compare_alternatives(self, impacts: pd.DataFrame, product_ids: List[str]) -> pd.DataFrame:
-#     comparison = impacts[impacts['product_id'].isin(product_ids)].copy()
-#     # ...
+    def compare_alternatives(
+        self, impacts: pd.DataFrame, product_ids: List[str]
+    ) -> pd.DataFrame:
+        """Compares environmental impacts between alternative products on an aggregated level."""
+        total_impacts = self.calculate_total_impacts(impacts)
+        comparison = total_impacts[total_impacts["product_id"].isin(product_ids)].copy()
 
-# Yeni Hali:
-    def compare_alternatives(self, impacts: pd.DataFrame, product_ids: List[str]) -> pd.DataFrame:
-        # Önce ilgili tüm satırları al
-        comparison_data = impacts[impacts['product_id'].isin(product_ids)]
-        
-        # Testin beklentisine uymak için ürün bazında grupla ve özetle
-        total_impacts = comparison_data.groupby(['product_id', 'product_name']).agg({
-            'carbon_impact': 'sum',
-            'energy_impact': 'sum',
-            'water_impact': 'sum',
-            'waste_generated_kg': 'sum'
-        }).reset_index()
-
-        # Not: Bu değişiklik, testteki _relative sütunlarını hesaplayan sonraki adımları
-        # bozabilir. Şimdilik sadece "assert len() == 2" testini geçmek için bu yeterli.
-        # Şimdilik orijinal fonksiyondaki göreceli fark hesaplamasını basitleştirilmiş
-        # haliyle döndürelim. Gerçek bir senaryoda bu kısmın da mantığa uygun güncellenmesi gerekir.
-        comparison = total_impacts[total_impacts['product_id'].isin(product_ids)].copy()
-
-        #... orijinal koddaki göreceli fark hesaplama mantığı ...
-        for impact_type in ['carbon_impact', 'energy_impact', 'water_impact']:
+        # Calculate relative differences
+        for impact_type in ["carbon_impact", "energy_impact", "water_impact"]:
             min_value = comparison[impact_type].min()
-            if min_value > 0: # Sıfıra bölme hatasını önle
-                comparison[f'{impact_type}_relative'] = (
-                    (comparison[impact_type] - min_value) / min_value * 100
-                )
+            if min_value > 0:
+                comparison[f"{impact_type}_relative_diff_%"] = (
+                    (comparison[impact_type] - min_value) / min_value
+                ) * 100
             else:
-                comparison[f'{impact_type}_relative'] = 0.0
-        return comparison 
+                comparison[f"{impact_type}_relative_diff_%"] = 0.0
+        return comparison

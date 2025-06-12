@@ -1,0 +1,14 @@
+# Python cache dosyaları
+__pycache__/
+*.pyc
+
+# Pytest cache
+.pytest_cache/
+
+# Otomatik oluşturulan çıktılar
+outputs/
+
+# IDE/Ortam dosyaları (opsiyonel ama iyi bir pratik)
+.vscode/
+.env
+venv/
