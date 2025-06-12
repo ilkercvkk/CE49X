@@ -12,3 +12,5 @@ outputs/
 .vscode/
 .env
 venv/
+
+.gitignore
